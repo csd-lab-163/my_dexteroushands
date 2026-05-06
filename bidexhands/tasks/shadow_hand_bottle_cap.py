@@ -76,6 +76,8 @@ class ShadowHandBottleCap(BaseTask):
         self.fall_dist = self.cfg["env"]["fallDistance"]
         self.fall_penalty = self.cfg["env"]["fallPenalty"]
         self.rot_eps = self.cfg["env"]["rotEps"]
+        self.custom_reward=self.cfg["env"].get("customReward", False)
+        print("Use custom reward:", self.custom_reward)
 
         self.vel_obs_scale = 0.2  # scale factor of velocity based observations
         self.force_torque_obs_scale = 10.0  # scale factor of velocity based observations
@@ -644,14 +646,65 @@ class ShadowHandBottleCap(BaseTask):
         Args:
             actions (tensor): Actions of agents in the all environment 
         """
-        self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_hand_reward(
-            self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
-            self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot, self.bottle_cap_pos, self.bottle_pos, self.bottle_cap_up, 
-            self.left_hand_pos, self.right_hand_pos, self.right_hand_ff_pos, self.right_hand_mf_pos, self.right_hand_rf_pos, self.right_hand_lf_pos, self.right_hand_th_pos, 
-            self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
-            self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
-            self.max_consecutive_successes, self.av_factor, (self.object_type == "pen")
-        )
+        if self.custom_reward:
+            (self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:], 
+            
+                r_stage1,
+                r_stage2,
+                r_stage3,
+                r_action,
+
+                stage1_gate,
+                open_progress,
+                geom_open_dist,
+
+                right_norm,
+                left_palm_norm,
+                left_finger_norm)= compute_custom_reward(
+                self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
+                self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot, self.bottle_cap_pos, self.bottle_pos, self.bottle_cap_up, 
+                self.left_hand_pos, self.right_hand_pos, self.right_hand_ff_pos, self.right_hand_mf_pos, self.right_hand_rf_pos, self.right_hand_lf_pos, self.right_hand_th_pos, 
+                self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
+                self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
+                self.max_consecutive_successes, self.av_factor, (self.object_type == "pen"), 
+                # 新增：左手五指，用于判断左手是否真正抓住瓶身
+                self.left_hand_ff_pos,
+                self.left_hand_mf_pos,
+                self.left_hand_rf_pos,
+                self.left_hand_lf_pos,
+                self.left_hand_th_pos,
+                # 新增：瓶盖关节状态，用于判断旋转和滑出
+                self.object_dof_pos,
+                self.object_dof_vel,
+                # 新增：瓶身整体运动，用于防止瓶子跟着瓶盖转
+                self.object_linvel,
+                self.object_angvel,
+            )
+                    # ------------------------------------------------------------
+            # TensorBoard extras
+            # ------------------------------------------------------------
+            self.extras["reward/stage1_hands_ready"] = r_stage1
+            self.extras["reward/stage2_twist"] = r_stage2
+            self.extras["reward/stage3_open"] = r_stage3
+
+            self.extras["reward/action_penalty"] = r_action
+
+            self.extras["gate/stage1_hands_ready"] = stage1_gate
+
+            self.extras["metric/geom_open_dist"] = geom_open_dist
+            self.extras["metric/open_progress"] = open_progress
+            self.extras["metric/right_norm"] = right_norm
+            self.extras["metric/left_palm_norm"] = left_palm_norm
+            self.extras["metric/left_finger_norm"] = left_finger_norm
+        else:
+            self.rew_buf[:], self.reset_buf[:], self.reset_goal_buf[:], self.progress_buf[:], self.successes[:], self.consecutive_successes[:] = compute_hand_reward(
+                self.rew_buf, self.reset_buf, self.reset_goal_buf, self.progress_buf, self.successes, self.consecutive_successes,
+                self.max_episode_length, self.object_pos, self.object_rot, self.goal_pos, self.goal_rot, self.bottle_cap_pos, self.bottle_pos, self.bottle_cap_up, 
+                self.left_hand_pos, self.right_hand_pos, self.right_hand_ff_pos, self.right_hand_mf_pos, self.right_hand_rf_pos, self.right_hand_lf_pos, self.right_hand_th_pos, 
+                self.dist_reward_scale, self.rot_reward_scale, self.rot_eps, self.actions, self.action_penalty_scale,
+                self.success_tolerance, self.reach_goal_bonus, self.fall_dist, self.fall_penalty,
+                self.max_consecutive_successes, self.av_factor, (self.object_type == "pen")
+            )
 
         self.extras['successes'] = self.successes
         self.extras['consecutive_successes'] = self.consecutive_successes
@@ -722,7 +775,27 @@ class ShadowHandBottleCap(BaseTask):
         self.right_hand_th_pos = self.rigid_body_states[:, 25, 0:3]
         self.right_hand_th_rot = self.rigid_body_states[:, 25, 3:7]
         self.right_hand_th_pos = self.right_hand_th_pos + quat_apply(self.right_hand_th_rot, to_torch([0, 0, 1], device=self.device).repeat(self.num_envs, 1) * 0.02)
+        
+        # left hand finger
+        self.left_hand_ff_pos = self.rigid_body_states[:, 7 + 26, 0:3]
+        self.left_hand_ff_rot = self.rigid_body_states[:, 7 + 26, 3:7]
+        self.left_hand_ff_pos = self.left_hand_ff_pos + quat_apply(self.left_hand_ff_rot, to_torch([0, 0, 1], device=self.device).repeat(self.num_envs, 1) * 0.02)
 
+        self.left_hand_mf_pos = self.rigid_body_states[:, 11 + 26, 0:3]
+        self.left_hand_mf_rot = self.rigid_body_states[:, 11 + 26, 3:7]
+        self.left_hand_mf_pos = self.left_hand_mf_pos + quat_apply(self.left_hand_mf_rot, to_torch([0, 0, 1], device=self.device).repeat(self.num_envs, 1) * 0.02)
+
+        self.left_hand_rf_pos = self.rigid_body_states[:, 15 + 26, 0:3]
+        self.left_hand_rf_rot = self.rigid_body_states[:, 15 + 26, 3:7]
+        self.left_hand_rf_pos = self.left_hand_rf_pos + quat_apply(self.left_hand_rf_rot, to_torch([0, 0, 1], device=self.device).repeat(self.num_envs, 1) * 0.02)
+
+        self.left_hand_lf_pos = self.rigid_body_states[:, 20 + 26, 0:3]
+        self.left_hand_lf_rot = self.rigid_body_states[:, 20 + 26, 3:7]
+        self.left_hand_lf_pos = self.left_hand_lf_pos + quat_apply(self.left_hand_lf_rot, to_torch([0, 0, 1], device=self.device).repeat(self.num_envs, 1) * 0.02)
+
+        self.left_hand_th_pos = self.rigid_body_states[:, 25 + 26, 0:3]
+        self.left_hand_th_rot = self.rigid_body_states[:, 25 + 26, 3:7]
+        self.left_hand_th_pos = self.left_hand_th_pos + quat_apply(self.left_hand_th_rot, to_torch([0, 0, 1], device=self.device).repeat(self.num_envs, 1) * 0.02)
 
         self.goal_pose = self.goal_states[:, 0:7]
         self.goal_pos = self.goal_states[:, 0:3]
@@ -1422,7 +1495,230 @@ def compute_hand_reward(
     cons_successes = torch.where(resets > 0, successes * resets, consecutive_successes)
 
     return reward, resets, goal_resets, progress_buf, successes, cons_successes
+@torch.jit.script
+def compute_custom_reward(
+    rew_buf, reset_buf, reset_goal_buf, progress_buf, successes, consecutive_successes,
+    max_episode_length: float, object_pos, object_rot, target_pos, target_rot, bottle_cap_pos, bottle_pos, bottle_cap_up,
+    left_hand_pos, right_hand_pos, right_hand_ff_pos, right_hand_mf_pos, right_hand_rf_pos, right_hand_lf_pos, right_hand_th_pos,
+    dist_reward_scale: float, rot_reward_scale: float, rot_eps: float,
+    actions, action_penalty_scale: float,
+    success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
+    fall_penalty: float, max_consecutive_successes: int, av_factor: float, ignore_z_rot: bool,
+    # 新增：左手五指，用于判断左手是否真正抓住瓶身
+    left_hand_ff_pos,
+    left_hand_mf_pos,
+    left_hand_rf_pos,
+    left_hand_lf_pos,
+    left_hand_th_pos,
+    # 新增：瓶盖关节状态，用于判断旋转和滑出
+    object_dof_pos,
+    object_dof_vel,
+    # 新增：瓶身整体运动，用于防止瓶子跟着瓶盖转
+    object_linvel,
+    object_angvel
+):
+    """
+    Compute the reward of all environment.
 
+    Args:
+        rew_buf (tensor): The reward buffer of all environments at this time
+
+        reset_buf (tensor): The reset buffer of all environments at this time
+
+        reset_goal_buf (tensor): The only-goal reset buffer of all environments at this time
+
+        progress_buf (tensor): The porgress buffer of all environments at this time
+
+        successes (tensor): The successes buffer of all environments at this time
+
+        consecutive_successes (tensor): The consecutive successes buffer of all environments at this time
+
+        max_episode_length (float): The max episode length in this environment
+
+        object_pos (tensor): The position of the object
+
+        object_rot (tensor): The rotation of the object
+
+        target_pos (tensor): The position of the target
+
+        target_rot (tensor): The rotate of the target
+
+        bottle_cap_pos (tensor): The position of the bottle's cap
+
+        bottle_pos (tensor): The position of the bottle's body
+
+        bottle_cap_up (tensor): The height at which the bottle cap is raised
+
+        left_hand_pos, right_hand_pos (tensor): The position of the bimanual hands
+        
+        right_hand_ff_pos, right_hand_mf_pos, right_hand_rf_pos, right_hand_lf_pos, right_hand_th_pos (tensor): The position of the five fingers 
+            of the right hand
+
+        left_hand_ff_pos, left_hand_mf_pos, left_hand_rf_pos, left_hand_lf_pos, left_hand_th_pos (tensor): The position of the five fingers 
+            of the left hand
+
+        dist_reward_scale (float): The scale of the distance reward
+
+        rot_reward_scale (float): The scale of the rotation reward
+
+        rot_eps (float): The epsilon of the rotation calculate
+
+        actions (tensor): The action buffer of all environments at this time
+
+        action_penalty_scale (float): The scale of the action penalty reward
+
+        success_tolerance (float): The tolerance of the success determined
+
+        reach_goal_bonus (float): The reward given when the object reaches the goal
+
+        fall_dist (float): When the object is far from the Shadowhand, it is judged as falling
+
+        fall_penalty (float): The reward given when the object is fell
+
+        max_consecutive_successes (float): The maximum of the consecutive successes
+
+        av_factor (float): The average factor for calculate the consecutive successes
+
+        ignore_z_rot (bool): Is it necessary to ignore the rot of the z-axis, which is usually used 
+            for some specific objects (e.g. pen)
+    """
+    # gate param
+
+    RIGHT_REACH_TARGET = 0.30      
+    LEFT_PALM_TARGET = 0.12         
+    LEFT_FINGER_TARGET = 0.12       
+    #ROT_TARGET = 1.0
+    OPEN_START = 0.015             # 1/2open_target           
+    OPEN_TARGET = 0.03              
+    #BOTTLE_ANGVEL_TARGET = 1.0     
+
+    
+    GATE_K = 10.0
+    SUCCESS_BONUS = 5.0
+    
+    # right hand approach
+    right_hand_dist = torch.norm(bottle_cap_pos - right_hand_pos, p=2, dim=-1)
+    right_hand_finger_dist = (torch.norm(bottle_cap_pos - right_hand_ff_pos, p=2, dim=-1) + torch.norm(bottle_cap_pos - right_hand_mf_pos, p=2, dim=-1)
+                            + torch.norm(bottle_cap_pos - right_hand_rf_pos, p=2, dim=-1) + torch.norm(bottle_cap_pos - right_hand_lf_pos, p=2, dim=-1) 
+                            + torch.norm(bottle_cap_pos - right_hand_th_pos, p=2, dim=-1))
+    # left hand grasp
+    left_palm_dist = torch.norm(bottle_pos - left_hand_pos, p=2, dim=-1)
+    left_ff_dist = torch.norm(bottle_pos - left_hand_ff_pos, p=2, dim=-1)
+    left_mf_dist = torch.norm(bottle_pos - left_hand_mf_pos, p=2, dim=-1)
+    left_rf_dist = torch.norm(bottle_pos - left_hand_rf_pos, p=2, dim=-1)
+    left_lf_dist = torch.norm(bottle_pos - left_hand_lf_pos, p=2, dim=-1)
+    left_th_dist = torch.norm(bottle_pos - left_hand_th_pos, p=2, dim=-1)
+    left_finger_mean_dist = (
+        left_ff_dist + left_mf_dist + left_rf_dist + left_lf_dist + left_th_dist
+    ) / 5.0
+    
+    
+    #geom open dist
+    geom_open_dist = torch.norm(bottle_cap_up - bottle_pos, p=2, dim=-1)
+    open_ratio = (geom_open_dist - OPEN_START) / (OPEN_TARGET-OPEN_START)
+    open_progress = torch.clamp(open_ratio, min=0.0, max=1.0)
+
+    #stage1 twohands approach
+    right_norm = right_hand_finger_dist / RIGHT_REACH_TARGET
+    left_palm_norm = left_palm_dist / LEFT_PALM_TARGET
+    left_finger_norm = left_finger_mean_dist / LEFT_FINGER_TARGET
+    r_stage1 = 3.0 - right_norm - left_palm_norm - left_finger_norm
+    r_stage1 = torch.clamp(r_stage1, min=-3.0, max=3.0)
+
+    right_gate = torch.sigmoid(GATE_K * (1.0 - right_norm))
+    left_palm_gate = torch.sigmoid(GATE_K * (1.0 - left_palm_norm))
+    left_finger_gate = torch.sigmoid(GATE_K * (1.0 - left_finger_norm))
+
+    stage1_gate = right_gate * left_palm_gate * left_finger_gate
+
+    #stage2 caps rotation
+    #bottle_ang_norm = bottle_ang_speed / BOTTLE_ANGVEL_TARGET
+    #bottle_stable_gate = torch.sigmoid(GATE_K * (1.0 - bottle_ang_norm))
+    #stage2_gate = torch.sigmoid(GATE_K * (rot_ratio - 1.0))
+    #stage2 open reward 
+    r_stage2 = stage1_gate * open_progress
+
+    #stage3 open the caps out
+    #r_stage3 = stage1_gate * bottle_stable_gate * stage2_gate * open_progress
+    #direct_pull_penalty = -(1.0 - stage2_gate) * open_progress
+    
+    #stage3 keep success
+    success_now = (
+    (geom_open_dist > OPEN_TARGET)
+    & (right_norm < 1.2)
+    & (left_palm_norm < 1.5)
+    & (left_finger_norm < 1.5)
+    )
+    r_stage3 = success_now.float() * SUCCESS_BONUS
+    
+    #stage4 action_penalty
+    action_penalty = torch.sum(actions ** 2, dim=-1)
+    r_action = action_penalty_scale * action_penalty
+    # total reward
+    reward = (
+    r_stage1
+    + r_stage2
+    + r_stage3
+    + 0*r_action
+    )
+
+    # Orientation alignment for the cube in hand and goal cube
+    # quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
+    # rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 0:3], p=2, dim=-1), max=1.0))
+
+
+    # rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
+
+    # action_penalty = torch.sum(actions ** 2, dim=-1)
+
+    # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
+    # reward = torch.exp(-0.05*(up_rew * dist_reward_scale)) + torch.exp(-0.05*(right_hand_dist_rew * dist_reward_scale)) + torch.exp(-0.05*(left_hand_dist_rew * dist_reward_scale))
+    # reset condition
+    resets = reset_buf
+    resets = torch.where(
+        bottle_cap_pos[:, 2] <= 0.5,
+        torch.ones_like(resets),
+        resets,
+    )
+    resets = torch.where(
+        right_hand_dist >= 0.5,
+        torch.ones_like(resets),
+        resets,
+    )
+    resets = torch.where(
+        left_palm_dist >= 0.2,
+        torch.ones_like(resets),
+        resets,
+    )
+    resets = torch.where(
+        progress_buf >= max_episode_length,
+        torch.ones_like(resets),
+        resets,
+    )
+
+
+    # Find out which envs hit the goal and update successes count
+    successes = torch.where(successes == 0, 
+                    torch.where(torch.norm(bottle_cap_up - bottle_pos, p=2, dim=-1) > 0.03, torch.ones_like(successes), successes), successes)
+
+
+    goal_resets = torch.zeros_like(resets)
+
+    cons_successes = torch.where(resets > 0, successes * resets, consecutive_successes)
+
+    return (reward, resets, goal_resets, progress_buf, successes, cons_successes, 
+        r_stage1,
+        r_stage2,
+        r_stage3,
+        r_action,
+
+        stage1_gate,
+        open_progress,
+        geom_open_dist,
+
+        right_norm,
+        left_palm_norm,
+        left_finger_norm,)
 
 @torch.jit.script
 def randomize_rotation(rand0, rand1, x_unit_tensor, y_unit_tensor):

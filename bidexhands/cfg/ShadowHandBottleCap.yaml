@@ -8,6 +8,7 @@ env:
   cameraDebug: True
   pointCloudDebug: True
   aggregateMode: 1
+  customReward: False
 
   stiffnessScale: 1.0
   forceLimitScale: 1.0

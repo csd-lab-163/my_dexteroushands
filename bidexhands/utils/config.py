@@ -101,6 +101,9 @@ def load_cfg(args, use_rlg_config=False):
     if args.episode_length > 0:
         cfg["env"]["episodeLength"] = args.episode_length
 
+    # 新增：命令行控制是否启用自定义奖励
+    cfg["env"]["customReward"] = args.custom_reward 
+    
     cfg["name"] = args.task
     cfg["headless"] = args.headless
 
@@ -261,7 +264,10 @@ def get_args(benchmark=False, use_rlg_config=False, task_name="", algo=""):
         {"name": "--model_dir", "type": str, "default": "",
             "help": "Choose a model dir"},
         {"name": "--datatype", "type": str, "default": "random",
-            "help": "Choose an offline datatype"}]
+            "help": "Choose an offline datatype"},
+        # 新增项是否使用自定义的奖励项    
+        {"name": "--custom_reward", "action": "store_true", "default": False,
+            "help": "Use custom reward function instead of the original task reward"}]
 
     if benchmark:
         custom_parameters += [{"name": "--num_proc", "type": int, "default": 1, "help": "Number of child processes to launch"},

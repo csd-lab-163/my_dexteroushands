@@ -55,7 +55,7 @@ def parse_task(args, cfg, cfg_train, sim_params, agent_index):
     cfg["seed"] = cfg_train.get("seed", -1)
     cfg_task = cfg["env"]
     cfg_task["seed"] = cfg["seed"]
-
+        
     if args.task_type == "C++":
         if args.device == "cpu":
             print("C++ CPU")
