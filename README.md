@@ -7,6 +7,16 @@
 [![Unittest](https://img.shields.io/badge/Unittest-passing-green.svg "Unittest")](https://github.com/PKU-MARL "Unittest")
 [![Docs](https://img.shields.io/badge/Docs-In_development-red.svg "Author")](https://github.com/PKU-MARL "Docs")
 [![GitHub license](https://img.shields.io/github/license/PKU-MARL/DexterousHands)](https://github.com/PKU-MARL/DexterousHands/blob/main/LICENSE)
+### annanounce
+> This is a modified research version of DexterousHands for personal RL simulation experiments. It is not the official upstream repository.
+
+This repository is derived from the original DexterousHands project,inorder to solve the problem of shadowhandsbottleopen.
+
+Original license: Apache License 2.0.
+
+This repository contains modifications for personal/research RL simulation experiments.
+
+This is not the official upstream repository.
 
 ### Update
 
