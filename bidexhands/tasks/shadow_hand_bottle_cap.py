@@ -684,8 +684,8 @@ class ShadowHandBottleCap(BaseTask):
             # TensorBoard extras
             # ------------------------------------------------------------
             self.extras["reward/stage1_hands_ready"] = r_stage1
-            self.extras["reward/stage2_twist"] = r_stage2
-            self.extras["reward/stage3_open"] = r_stage3
+            self.extras["reward/stage2_open"] = r_stage2
+            self.extras["reward/stage3_keep"] = r_stage3
 
             self.extras["reward/action_penalty"] = r_action
 
@@ -1591,7 +1591,7 @@ def compute_custom_reward(
     OPEN_START = 0.015             # 1/2open_target           
     OPEN_TARGET = 0.03              
     #BOTTLE_ANGVEL_TARGET = 1.0     
-
+    ACTION_PENALTY_K=10
     
     GATE_K = 10.0
     SUCCESS_BONUS = 5.0
@@ -1645,9 +1645,9 @@ def compute_custom_reward(
     #stage3 keep success
     success_now = (
     (geom_open_dist > OPEN_TARGET)
-    & (right_norm < 1.2)
-    & (left_palm_norm < 1.5)
-    & (left_finger_norm < 1.5)
+    & (right_norm < 0.8)
+    & (left_palm_norm < 0.4)
+    & (left_finger_norm < 0.5)
     )
     r_stage3 = success_now.float() * SUCCESS_BONUS
     
@@ -1659,7 +1659,7 @@ def compute_custom_reward(
     r_stage1
     + r_stage2
     + r_stage3
-    + 0*r_action
+    + ACTION_PENALTY_K*r_action
     )
 
     # Orientation alignment for the cube in hand and goal cube
